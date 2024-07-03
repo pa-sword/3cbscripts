@@ -1,26 +1,47 @@
-use std::{cmp, vec};
+use std::{cmp, ops::Sub, vec};
 
+
+const LOGGING: bool = true;
+
+/*
+    In this simplified version, we start on the forced turn 4
+    where ocelot attacked with two cats on turn 4A, against BMC's sole blocker
+
+    the only relevant decision that BMC can take before that, is 
+    1) whether to make a changeling
+    (proving this is optimal is left as an exercise to the reader)
+
+    2) and whether to make a treasure alongside it;
+        I'm fairly certain lines where BMC doesn't make treasures at all have been explored.
+        If  they don't start early, they lose access to the threat of lifelink, later anyways.
+    ** in theory need to confirm this is optimal
+
+
+    For the sake of speed and demonstrating ocelot advantage from here,
+    ocelot player won't ever attack unless it has lethal.
+
+*/
 
 fn main() {
     let res = State {
-        turn_count: 3
+        turn_count: 4
         , priority: Player::BMC
         , turn: Player::BMC
-        , op_health: 23
-        , bmc_health: 17
-        , changeling: 0
+        , op_health: 24
+        , bmc_health: 13
+        , changeling: 1
         , changeling_tapped: 0
         , changeling_entered: 0
         , treasure: 2 // simulates the existence of peat bog while not having to specifically model it
         , cat: 2
         , cat_tapped: 1
         , ocelot_alive: 1
-        , ocelot_tapped: 1
+        , ocelot_tapped: 0
         , city_blessing: false 
         , legal_actions: vec![Action::MakeChangeling, Action::MakeTreasure, Action::MakeBoth],
     }.solve().to_string();
 
-    println!("{}", res);
+    println!("{} wins the whole thing", res);
 }
 
 #[derive(Debug, Clone)]
@@ -83,6 +104,7 @@ enum Action {
 }
 
 fn make_changeling( state: &State ) -> State {
+    if LOGGING { print!("make_changeling, ") };
     let mut ret = state.clone();
     ret.bmc_health = state.bmc_health - 3;
     ret.changeling = state.changeling + 1;
@@ -96,6 +118,7 @@ fn make_changeling( state: &State ) -> State {
 }
 
 fn make_treasure( state: &State ) -> State {
+    if LOGGING { print!("make_treasure, ") };
     let mut ret = state.clone();
     ret.bmc_health = state.bmc_health - 1;
     ret.treasure = state.treasure + 1;
@@ -108,6 +131,7 @@ fn make_treasure( state: &State ) -> State {
 }
 
 fn make_both( state: &State ) -> State {
+    if LOGGING { print!("make_both, ") };
     let mut ret = state.clone();
     ret.bmc_health = state.bmc_health - 4;
     ret.changeling = state.changeling + 1;
@@ -122,6 +146,7 @@ fn make_both( state: &State ) -> State {
 }
 
 fn vault( state: &State ) -> State {
+    if LOGGING { print!("vault activation") };
     let mut ret = state.clone();
     ret.treasure -= 4u32;
 
@@ -145,7 +170,12 @@ fn vault( state: &State ) -> State {
 }
 
 fn pass( state: &State ) -> State {
-   let mut ret = state.clone();
+    if LOGGING {
+        println!();
+        state.print();
+    }
+
+    let mut ret = state.clone();
 
    match state.priority {
     Player::OP => {
@@ -186,49 +216,25 @@ fn pass( state: &State ) -> State {
 }
 
 fn attacks( state: &State ) -> Vec<State> {
+    if LOGGING { print!("attacks, ") };
    let mut ret: Vec<State> = vec![];
 
+   /* 
+   There is only all out attack entertained as a viable attack for OP (outside from PASS) 
+
+   Note BMC still has every possible number of attackers tried out
+   */
    match state.priority {
     Player::OP => {
-        let min_attackers = 1 + state.changeling - state.changeling_tapped;
-        for attackers in min_attackers..state.cat {
-            let mut attack_no_ocelot = state.clone();
-            attack_no_ocelot.cat_tapped = attackers;
-            attack_no_ocelot.priority = Player::BMC;
-            if state.treasure >= 4 {    
-                attack_no_ocelot.legal_actions = vec![Action::AutoBlock, Action::Vault];
-            } else {
-                attack_no_ocelot.legal_actions = vec![Action::AutoBlock];
-            }
-            
-            ret.push(attack_no_ocelot);
-
-            if state.ocelot_alive == 1 {
-                let mut attack_with_ocelot = state.clone();
-                attack_with_ocelot.ocelot_tapped = 1;
-                attack_with_ocelot.cat_tapped = attackers - 1;
-                attack_with_ocelot.priority = Player::BMC;
-                if state.treasure >= 4 {    
-                    attack_with_ocelot.legal_actions = vec![Action::AutoBlock, Action::Vault];
-                } else {
-                    attack_with_ocelot.legal_actions = vec![Action::AutoBlock];
-                }
-                ret.push(attack_with_ocelot);
-            }
-            
-        };
-        if state.ocelot_alive == 1 {
-            let mut all_out_attack = state.clone();
-            all_out_attack.ocelot_tapped = 1;
-            all_out_attack.cat_tapped = state.cat;
-            all_out_attack.priority = Player::BMC;
-            if state.treasure >= 4 {    
-                all_out_attack.legal_actions = vec![Action::AutoBlock, Action::Vault];
-            } else {
-                all_out_attack.legal_actions = vec![Action::AutoBlock];
-            }
-            ret.push(all_out_attack);
+        let mut all_out_attack = state.clone();
+        all_out_attack.cat_tapped = state.cat;
+        all_out_attack.priority = Player::BMC;
+        if state.treasure >= 4 {    
+            all_out_attack.legal_actions = vec![Action::AutoBlock, Action::Vault];
+        } else {
+            all_out_attack.legal_actions = vec![Action::AutoBlock];
         }
+        ret.push(all_out_attack);
 
         ret
     },
@@ -257,24 +263,27 @@ fn attacks( state: &State ) -> Vec<State> {
 }
 
 fn block( state: &State ) -> State {
+    if LOGGING { print!("block, ") };
    let mut ret = state.clone();
 
    match state.priority {
     Player::OP => {
         panic!("block is always a multi-option case for OP player, use blocks")
     },
+    // Ocelot will never attack unless it wins
     Player::BMC => {
         let mut blockers_to_apply =  state.changeling - state.changeling_tapped; 
-        let damage: u32 = state.cat_tapped + state.ocelot_tapped - blockers_to_apply;
+        // let damage: u32 = state.cat_tapped + state.ocelot_tapped - blockers_to_apply;
+        let damage: u32 = state.cat_tapped - blockers_to_apply;
         ret.bmc_health = state.bmc_health.checked_sub_unsigned(damage).unwrap();
-
-        if state.ocelot_tapped == 1u32 {
-            ret.op_health = state.op_health + 1;
-            if blockers_to_apply > 0 {
-                ret.ocelot_alive = 0;
-                blockers_to_apply -= 1;
-            }
-        }
+    
+        // if state.ocelot_tapped == 1u32 {
+        //     ret.op_health = state.op_health + 1;
+        //     if blockers_to_apply > 0 {
+        //         ret.ocelot_alive = 0;
+        //         blockers_to_apply -= 1;
+        //     }
+        // }
         ret.cat = state.cat - blockers_to_apply; 
         ret.cat_tapped = state.cat_tapped - blockers_to_apply;
         ret.priority = Player::OP;
@@ -285,14 +294,33 @@ fn block( state: &State ) -> State {
    }
 }
 
+// unless ocelot wins on crackback, it trades with as many cats as possible
+
 fn blocks( state: &State) -> Vec<State> {
+    if LOGGING { print!("blocks, ") };
     let mut ret: Vec<State> = vec![];
 
     match state.priority {
         Player::OP => {
-            ret.push( no_blocks( &(state.clone()) ) );
-            // ASSUMPTION: not bothering to calc scenarios where the ocelot blocks yet, but I know it should be relevant
-            // ASSUMPTION: also not yet exploring the combination of trade and chump
+
+            // Break Scenario:
+            // If there are enough attackers to win on the backswing,
+            // we return a winning ocelot state (shortcutting calcs)
+
+            let necessary_blocks_signed: i32 = (-state.op_health / 3 ).checked_add_unsigned(state.changeling_tapped).unwrap() ;
+            let necessary_blocks: u32 = if necessary_blocks_signed.is_negative() { 0u32 } else { necessary_blocks_signed.unsigned_abs() };
+            
+            let potential_next_attackers = (state.cat + state.ocelot_alive).checked_sub(necessary_blocks).or( Some(0 ) ).unwrap() ;
+            let potential_next_blockers = state.changeling - state.changeling_tapped;
+
+            // NOTE: any Vault activation is done before blocks
+            // but it doesn't hurt to be safe
+            if potential_next_attackers > potential_next_blockers 
+            && state.bmc_health.checked_sub_unsigned(potential_next_attackers - potential_next_blockers).unwrap() <= 0
+            && state.treasure < 4  {
+                ret = vec![State{ turn_count: 0, priority: Player::BMC, turn: Player::BMC, op_health: 20, bmc_health: -5, changeling: 0, changeling_tapped: 0, changeling_entered: 0, treasure: 0, cat: 1, cat_tapped: 1, ocelot_alive: 1, ocelot_tapped: 1, city_blessing: false, legal_actions: vec![] }];
+                return ret
+            }
 
             // case trade // ASSUMPTION: if trading is optimal, trading to the maximum amount is optimal (might be wrong)
             let max_blocker_groups = ( state.cat - state.cat_tapped ) / 2;
@@ -308,24 +336,6 @@ fn blocks( state: &State) -> Vec<State> {
 
             ret.push( trade );
 
-            // case chump
-
-            let max_chumpers = state.cat - state.cat_tapped;
-            let max_chumps = cmp::min( max_chumpers, state.changeling_tapped );
-            if max_chumps > 0 { 
-                for chumps in 1..max_chumps {
-                    let unblocked =  state.changeling_tapped - chumps;
-                    let mut chump = state.clone();
-                    chump.cat = state.cat - chumps;
-                    chump.op_health = state.op_health.checked_sub_unsigned( 3 * unblocked ).unwrap();
-                    chump.priority = Player::BMC;
-                    chump.legal_actions = vec![Action::Pass];
-
-                    ret.push( chump );
-
-                }
-            }
-
             ret
         },
         Player::BMC => {
@@ -335,45 +345,42 @@ fn blocks( state: &State) -> Vec<State> {
 
 }
 
-fn no_blocks( state: &State ) -> State {
-    let mut ret = state.clone();
-    
-    match state.priority {
-        Player::OP => {
-            ret.op_health = state.op_health.checked_sub( (3 * state.changeling_tapped).try_into().unwrap() ).unwrap();
-            ret.priority = Player::BMC;
-            ret.legal_actions = vec![Action::Pass];
-            
-            ret
-        },
-        Player::BMC => {
-           panic!("the block process is always deterministically better for BMC player") 
-        },
-    }
-}
-
 impl State {
     fn solve( &self ) -> Player {
-       //self.print();
+       // self.print();
 
         if self.op_health <= 0 {
-            //println!("BMC wins");
+            if LOGGING { print!("BMC wins") };
             return Player::BMC
         }
 
         if self.bmc_health <= 0 {
-            //println!("OP wins");
+            if LOGGING { print!("OP wins") };
             return Player::OP
         }
 
         // turns out I need a stop condition in case i go down the "always pass" route
-        if self.ocelot_alive == 0 && self.changeling > self.cat {
-            return Player::BMC
+        // ocelot shouldn't attack, except in the win shortcut for crackback win
+        if self.ocelot_tapped == 1 {
+            panic!("ocelot should not be attacking ever in this simplified version of calcs");
         }
 
-        if self.turn_count > 17 {
-            return Player::BMC
+        // arbitrary turn limit to avoid pass/pass lines
+        // we give BMC the edge, just to make sure ocelot does force the win
+        if self.turn_count > 13 {
+            if LOGGING { print!("turn limit was hit, ") };
+            return Player::OP
         }
+
+// PLEASE CHECK THIS TO DEATH
+// basically: if the player making the decision ("player with priority")
+// finds a winning line from a set gamestate in their list of options,
+// they stop looking for other options
+// 
+// if they find a loss, they look into other options until they find a win
+// if no possible win is found from the initial gamestate,
+// they "admit" this gamestate is lost to them
+
 
 
         <Vec<Action> as Clone>::clone(&self.legal_actions).into_iter()
@@ -411,7 +418,8 @@ impl State {
     }
 
     fn print(&self) {
-        print!("{}{}: {}-{}; {} changelings, {} treasures, {} cats, {} ocelot "
+        let padding = (self.turn_count * 2) as usize;
+        println!("{:padding$}{}: {}-{}; {} changelings, {} treasures, {} cats, {} ocelot "
             , self.turn_count
             , self.turn.to_string()
             , self.op_health
