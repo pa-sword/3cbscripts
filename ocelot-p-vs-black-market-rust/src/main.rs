@@ -2,6 +2,7 @@ use std::{cmp, ops::Sub, vec};
 
 
 const LOGGING: bool = true;
+const TURN_LIMIT: u32 = 18;
 
 /*
     In this simplified version, we start on the forced turn 4
@@ -40,6 +41,25 @@ fn main() {
         , city_blessing: false 
         , legal_actions: vec![Action::MakeChangeling, Action::MakeTreasure, Action::MakeBoth],
     }.solve().to_string();
+    
+    // let res = State {
+    //     turn_count: 15
+    //     , priority: Player::BMC
+    //     , turn: Player::BMC
+    //     , op_health: 35
+    //     , bmc_health: 2
+    //     , changeling: 1
+    //     , changeling_tapped: 0
+    //     , changeling_entered: 0
+    //     , treasure: 6 // simulates the existence of peat bog while not having to specifically model it
+    //     , cat: 5
+    //     , cat_tapped: 1
+    //     , ocelot_alive: 1
+    //     , ocelot_tapped: 0
+    //     , city_blessing: false 
+    //     , legal_actions: vec![Action::Pass],
+    // }.solve().to_string();
+
 
     println!("{} wins the whole thing", res);
 }
@@ -229,12 +249,20 @@ fn attacks( state: &State ) -> Vec<State> {
         let mut all_out_attack = state.clone();
         all_out_attack.cat_tapped = state.cat;
         all_out_attack.priority = Player::BMC;
+        let mut all_out_ocelot = all_out_attack.clone();
+        all_out_ocelot.ocelot_tapped = 1;
+
+
         if state.treasure >= 4 {    
+            all_out_ocelot.legal_actions = vec![Action::AutoBlock, Action::Vault];
             all_out_attack.legal_actions = vec![Action::AutoBlock, Action::Vault];
+
         } else {
+            all_out_ocelot.legal_actions = vec![Action::AutoBlock];
             all_out_attack.legal_actions = vec![Action::AutoBlock];
         }
         ret.push(all_out_attack);
+        ret.push(all_out_ocelot);
 
         ret
     },
@@ -361,15 +389,15 @@ impl State {
 
         // turns out I need a stop condition in case i go down the "always pass" route
         // ocelot shouldn't attack, except in the win shortcut for crackback win
-        if self.ocelot_tapped == 1 {
+        if self.ocelot_alive == 0 && self.changeling > self.cat {
             panic!("ocelot should not be attacking ever in this simplified version of calcs");
         }
 
         // arbitrary turn limit to avoid pass/pass lines
         // we give BMC the edge, just to make sure ocelot does force the win
-        if self.turn_count > 13 {
+        if self.turn_count > TURN_LIMIT {
             if LOGGING { print!("turn limit was hit, ") };
-            return Player::OP
+            return Player::BMC
         }
 
 // PLEASE CHECK THIS TO DEATH
@@ -429,5 +457,20 @@ impl State {
             , self.cat
             , self.ocelot_alive
         )
+    }
+
+    fn compare(&self, other: State ) -> Option<Player> {
+        if self.op_health >= other.op_health
+        && self.bmc_health <= other.op_health
+        && ( 
+            self.priority.equal(Player::OP) || other.priority.equal( Player::BMC ) 
+        )
+        && self.cat >= other.cat
+        && ( self.ocelot_alive == 1 || self.ocelot_alive == 0 )
+        && self.changeling <= other.changeling
+        {
+            // the current state is strictly more favorable to OP
+            Some(Player::OP)
+        }
     }
 }
